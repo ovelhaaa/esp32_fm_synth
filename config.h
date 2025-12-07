@@ -13,35 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * Dieses Programm ist Freie Software: Sie können es unter den Bedingungen
- * der GNU General Public License, wie von der Free Software Foundation,
- * Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
- * veröffentlichten Version, weiter verteilen und/oder modifizieren.
- *
- * Dieses Programm wird in der Hoffnung bereitgestellt, dass es nützlich sein wird, jedoch
- * OHNE JEDE GEWÄHR,; sogar ohne die implizite
- * Gewähr der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
- * Siehe die GNU General Public License für weitere Einzelheiten.
- *
- * Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
- * Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
  */
-
-/**
- * @file config.h
- * @author Marcel Licence
- * @date 12.05.2021
- *
- * @brief This file contains the project configuration
- *
- * All definitions are visible in the entire project
- *
- * Put all your project settings here (defines, numbers, etc.)
- * configurations which are requiring knowledge of types etc.
- * shall be placed in z_config.ino (will be included at the end)
- */
-
 
 #ifndef CONFIG_H_
 #define CONFIG_H_
@@ -50,93 +22,68 @@
 #include <cdt.h>
 #endif
 
+/*
+ * BLE MIDI Configuration
+ */
+#define BLE_MIDI_ENABLED
 
+/*
+ * Core Audio Settings
+ */
 //#define I2S_USE_APLL
 //#define OUTPUT_SAW_TEST
 
-
 #define SERIAL_BAUDRATE 115200
-#define MIDI_SERIAL_BAUDRATE SERIAL_BAUDRATE
 
+// Board Selection
+#define BOARD_ML_V1
+//#define BOARD_ESP32_AUDIO_KIT_AC101
+//#define BOARD_ESP32_AUDIO_KIT_ES8388
+//#define BOARD_ESP32_DOIT
 
-#define BOARD_ML_V1 /* activate this when using the ML PCB V1 */
-//#define BOARD_ESP32_AUDIO_KIT_AC101 /* activate this when using the ESP32 Audio Kit v2.2 with the AC101 codec */
-//#define BOARD_ESP32_AUDIO_KIT_ES8388 /* activate this when using the ESP32 Audio Kit v2.2 with the ES8388 codec */
-//#define BOARD_ESP32_DOIT /* activate this when using the DOIT ESP32 DEVKIT V1 board */
-
-/* can be used to pass line in through audio processing to output */
+/* Audio Processing */
 //#define AUDIO_PASS_THROUGH
-
-/* this changes latency but also speed of processing */
 #define SAMPLE_BUFFER_SIZE 48
-
-/* this will force using const velocity for all notes, remove this to get dynamic velocity */
-#define MIDI_USE_CONST_VELOCITY
-
-/* this variable defines the max length of the delay and also the memory consumption */
 #define MAX_DELAY   (SAMPLE_RATE/3) /* 1s -> @ 44100 samples */
 
-/* you can receive MIDI messages via serial-USB connection */
-/*
- * you could use for example https://projectgus.github.io/hairless-midiserial/
- * to connect your MIDI device via computer to the serial port
- */
-#define MIDI_RECV_FROM_SERIAL
-
-/* activate MIDI via USB */
+/* MIDI Configuration */
+// Disable Serial/USB MIDI if using BLE to avoid conflict/overhead,
+// though BLEMidi can coexist. We focus on BLE.
+//#define MIDI_RECV_FROM_SERIAL
 //#define MIDI_VIA_USB_ENABLED
 
-/* use this to display a scope on the oled display */
+#define MIDI_USE_CONST_VELOCITY
+
+/* Other modules */
 //#define OLED_OSC_DISP_ENABLED
-
-/* use the following define to use the pressure sensor @see https://youtu.be/oHT1c7EdinU */
 //#define PRESSURE_SENSOR_ENABLED
+//#define ADC_TO_MIDI_ENABLED
+#define ADC_TO_MIDI_LOOKUP_SIZE 8
 
-/*
- * keep in mind that activation of adc will also change your controls on startup!
- */
-//#define ADC_TO_MIDI_ENABLED /* this will enable the adc module */
-#define ADC_TO_MIDI_LOOKUP_SIZE 8 /* should match ADC_INPUTS */
-
-//#define ARP_MODULE_ENABLED /* allow using arp module */
-#define MIDI_SYNC_MASTER /* turn this off to use external midi clock signal */
-//#define MIDI_CTRL_ENABLED /* used for virtual split point */
-
-//#define MIDI_STREAM_PLAYER_ENABLED /* activate this to use the midi stream playback module */
+//#define ARP_MODULE_ENABLED
+#define MIDI_SYNC_MASTER
 
 /*
  * include the board configuration
- * there you will find the most hardware depending pin settings
  */
-#include <ml_boards.h> /* requires the ML_Synth library: https://github.com/marcel-licence/ML_SynthTools */
+#include <ml_boards.h>
 
 #ifdef BOARD_ML_V1
 #elif (defined BOARD_ESP32_AUDIO_KIT_AC101)
 #elif (defined BOARD_ESP32_AUDIO_KIT_ES8388)
 #elif (defined BOARD_ESP32_DOIT)
 #else
-/* there is room left for other configurations */
-
-/*
- * DIN MIDI Pinout
- */
 #define MIDI_PORT2_ACTIVE
-#define MIDI_RX2_PIN 16 /* U2RRXD */
+#define MIDI_RX2_PIN 16
 #define MIDI_TX2_PIN 17
-
 #endif
 
-/*
- * You can modify the sample rate as you want
- */
 #ifdef ESP32_AUDIO_KIT
 #define SAMPLE_RATE 44100
 #define SAMPLE_SIZE_16BIT
 #else
-#define SAMPLE_RATE 48000 /* 20: 46875, 25: 37500, 30: 31250 -> 8MHz MCLK, 62500 -> 16MHz*/
-#define SAMPLE_SIZE_16BIT /* 32 bit seems not to work at the moment */
+#define SAMPLE_RATE 48000
+#define SAMPLE_SIZE_16BIT
 #endif
 
-
 #endif /* CONFIG_H_ */
-
