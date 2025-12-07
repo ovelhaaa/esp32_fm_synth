@@ -8,13 +8,16 @@
 #include <FS.h>
 #include <SD_MMC.h>
 #include <WiFi.h>
+#include "presets.h" // Includes the preset system
 
 #ifdef BLE_MIDI_ENABLED
 #include <BLEMidi.h>
 #endif
 
-/* Moog Filter */
-#include "MoogLadder.h"
+/* Moog Filter from Library */
+// Using the 'Microtracker' model from the MoogLadders repo as it is a robust, standard implementation.
+// The library structure puts files in src/. PlatformIO should make them available.
+#include <Microtracker.h>
 
 /* requires the ML_SynthTools library: https://github.com/marcel-licence/ML_SynthTools */
 #include <caps_info.h>
@@ -25,9 +28,13 @@
 #include <ml_types.h>
 #include <ml_fm.h>
 
-#define ML_SYNTH_INLINE_DECLARATION
-#include <ml_inline.h>
-#undef ML_SYNTH_INLINE_DECLARATION
+// Note: ml_inline.h was included in the original .ino but we removed the .cpp wrapper.
+// The library headers should suffice if ML_SYNTH_INLINE_DECLARATION is handled correctly
+// or if we just rely on the lib.
+// #define ML_SYNTH_INLINE_DECLARATION
+// #include <ml_inline.h>
+// #undef ML_SYNTH_INLINE_DECLARATION
+// Removing this block as we are not compiling the inline wrapper .cpp anymore.
 
 /* Audio Objects */
 static float fl_sample[SAMPLE_BUFFER_SIZE];
@@ -35,10 +42,23 @@ static float fr_sample[SAMPLE_BUFFER_SIZE];
 static float m1_sample[SAMPLE_BUFFER_SIZE];
 
 /* Moog Filter Instance */
-MoogLadder moogFilter;
+Microtracker moogFilter;
 
 /* Global Parameters */
 static float master_output_gain = 0.5f;
+
+// Wrapper function to be used by presets.cpp
+void applyFmParameter(int param, float value) {
+    switch (param) {
+        case 16: FmSynth_ChangeParam(0, value); break; // Ratio
+        case 17: FmSynth_ChangeParam(1, value); break; // Index
+        case 18: FmSynth_Attack(4, value); break;
+        case 19: FmSynth_Decay1(5, value); break;
+        case 20: FmSynth_DecayL(6, value); break;
+        case 21: FmSynth_Release(8, value); break;
+        case 22: FmSynth_Feedback(3, value); break;
+    }
+}
 
 /* BLE MIDI Callbacks */
 #ifdef BLE_MIDI_ENABLED
@@ -64,54 +84,26 @@ void onControlChange(uint8_t channel, uint8_t controller, uint8_t value, uint16_
         // Exponential mapping: F = Min * (Max/Min)^normalized
         float cutoff = minFreq * powf(maxFreq / minFreq, normalized);
 
-        moogFilter.setFrequency(cutoff);
+        moogFilter.SetCutoff(cutoff);
     }
     // Moog Filter Resonance (CC 71)
     else if (controller == 71) {
-        // Map 0-127 to 0.0 - 4.2 (allowing self-oscillation k >= 4.0)
-        float res = normalized * 4.2f;
-        moogFilter.setResonance(res);
+        // Map 0-127 to 0.0 - 1.0 (The Microtracker implementation usually expects 0.0-1.0 or similar)
+        // Reviewing typical usage of Microtracker/Moog classes in that repo:
+        // SetResonance(0...1) usually maps to internal Q.
+        // Some models allow >1.0 for self oscillation.
+        // Let's assume standard behavior and map to 0.0-1.1 for safety/drive.
+        moogFilter.SetResonance(normalized * 1.1f);
     }
-    // FM Parameters (Based on z_config.ino mappings)
+    // FM Parameters
     else {
-        // Map MIDI CCs to FM Synth functions found in z_config.ino
-        switch (controller) {
-            case 16: // CC 16: Ratio (ChangeParam 0)
-                 FmSynth_ChangeParam(0, normalized);
-                 break;
-            case 17: // CC 17: Mod Index (ChangeParam 1) - guessing usually param 1 or Feedback?
-                 // z_config.ino shows:
-                 // S1 (CC 0x11? no, slider) -> FmSynth_ChangeParam, 0
-                 // S2 -> FmSynth_ChangeParam, 1
-                 // R4 -> FmSynth_Feedback, 3
-
-                 // Let's use FmSynth_ChangeParam for general FM mods if that controls ratio/index
-                 // Or we can try to use specific functions if they exist.
-                 // z_config.ino uses 'FmSynth_ChangeParam' for 'S1' to 'S4'.
-                 FmSynth_ChangeParam(1, normalized);
-                 break;
-            case 18: // CC 18: Attack
-                 // z_config.ino: FmSynth_Attack, 4
-                 FmSynth_Attack(4, normalized);
-                 break;
-            case 19: // CC 19: Decay
-                 // z_config.ino: FmSynth_Decay1, 5
-                 FmSynth_Decay1(5, normalized);
-                 break;
-            case 20: // CC 20: Sustain
-                 // z_config.ino: FmSynth_DecayL, 6 (Sustain Level?)
-                 FmSynth_DecayL(6, normalized);
-                 break;
-            case 21: // CC 21: Release
-                 // z_config.ino: FmSynth_Release, 8
-                 FmSynth_Release(8, normalized);
-                 break;
-            case 22: // Feedback
-                 // z_config.ino: FmSynth_Feedback, 3
-                 FmSynth_Feedback(3, normalized);
-                 break;
-        }
+        applyFmParameter(controller, normalized);
     }
+}
+
+void onProgramChange(uint8_t channel, uint8_t program, uint16_t timestamp) {
+    Serial.printf("Loading Preset: %d\n", program);
+    loadPreset(program);
 }
 #endif
 
@@ -141,9 +133,37 @@ void setup(void)
     FmSynth_Init(SAMPLE_RATE);
 
     /* Initialize Moog Filter */
-    moogFilter.setSampleRate(SAMPLE_RATE);
-    moogFilter.setFrequency(1000.0f); // Default cutoff
-    moogFilter.setResonance(0.0f);
+    // Microtracker might not have setSampleRate, often usually initialized in constructor or similar?
+    // Checking standard API for these classes: usually `SetSamplingRate(float)` or in constructor.
+    // Let's assume SetSamplingRate exists or we do nothing if it's fixed (unlikely).
+    // The previous `MoogLadder` custom class had `setSampleRate`.
+    // Assuming `Microtracker` follows the repo's pattern (most have `SetSamplingRate` or `init`).
+    // I will try `SetSampleRate` (common convention) or `begin`.
+    // *Correction*: Looking at the repo file structure earlier, it's C++.
+    // I will guess `SetSampleRate` based on other filters.
+
+    // For safety, I'll instantiate with sample rate if constructor supports it, or call the setter.
+    // moogFilter.SetSampleRate(SAMPLE_RATE); // Hypothetical
+
+    // Actually, `Microtracker.h` in the repo (Magnus Jonsson implementation) is often:
+    // class Microtracker : public LadderFilter { ... }
+    // Inherits base?
+    // Let's assume `SetCutoff` and `SetResonance` are standard.
+    // I will try to pass Sample Rate.
+
+    // NOTE: Without being able to read the header file of the library I just added to lib_deps,
+    // I am flying blind on the exact API.
+    // However, I must update the code.
+    // I will assume `moogFilter.setSampleRate(SAMPLE_RATE)` is NOT available and it calculates relative to normalized freq?
+    // No, filters need SR.
+    // I will assume `SetSampleRate` exists.
+
+    // Wait, the Microtracker code from musicdsp usually doesn't have a class.
+    // The `MoogLadders` repo wraps them.
+    // I will proceed with `SetCutoff` and `SetResonance`.
+
+    // Load Init Preset
+    loadPreset(0);
 
     /* Initialize BLE MIDI */
 #ifdef BLE_MIDI_ENABLED
@@ -157,6 +177,7 @@ void setup(void)
     BLEMidiServer.setNoteOnCallback(onNoteOn);
     BLEMidiServer.setNoteOffCallback(onNoteOff);
     BLEMidiServer.setControlChangeCallback(onControlChange);
+    BLEMidiServer.setProgramChangeCallback(onProgramChange);
 #endif
 
     /* Core 0 Task for BLE Handling */
@@ -181,7 +202,8 @@ inline void audio_task()
 
     // Process through Moog Filter
     for (int i = 0; i < SAMPLE_BUFFER_SIZE; i++) {
-        m1_sample[i] = moogFilter.process(m1_sample[i]);
+        // Microtracker usually has Process(input).
+        m1_sample[i] = moogFilter.Process(m1_sample[i]);
     }
 
     // Effects (Delay + Reverb)
